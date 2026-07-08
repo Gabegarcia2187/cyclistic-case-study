@@ -1,0 +1,219 @@
+-- =====================================================
+-- CYCLISTIC CASE STUDY - COMPLETE SQL QUERIES
+-- Data Source: Divvy_Trips_2019_Q1.csv
+-- Tool: SQLite (DB Browser for SQLite)
+-- Database Tables: Cyclistic_BikeShare (raw), trips_clean (cleaned)
+-- =====================================================
+
+-- =====================================================
+-- SECTION 1: DATA VERIFICATION
+-- =====================================================
+
+-- 1.1: View first 10 rows from original table to verify import and column names
+SELECT * FROM Cyclistic_BikeShare LIMIT 10;
+
+-- =====================================================
+-- SECTION 2: DATA CLEANING
+-- =====================================================
+
+-- 2.1: Create clean table from original data
+CREATE TABLE trips_clean AS
+SELECT * FROM Cyclistic_BikeShare;
+
+-- 2.2: Check for blank start_time or end_time values in trips_clean
+SELECT COUNT(*) 
+FROM trips_clean 
+WHERE start_time IS NULL OR end_time IS NULL;
+
+-- 2.3: Delete rows with blank start_time or end_time from trips_clean
+DELETE FROM trips_clean 
+WHERE start_time IS NULL OR end_time IS NULL;
+
+-- 2.4: Add ride_length column to trips_clean to store ride duration in minutes
+ALTER TABLE trips_clean ADD COLUMN ride_length INTEGER;
+
+-- 2.5: Calculate ride_length in minutes (end_time - start_time) in trips_clean
+UPDATE trips_clean 
+SET ride_length = (strftime('%s', end_time) - strftime('%s', start_time)) / 60;
+
+-- 2.6: Check for zero or negative ride lengths (errors) in trips_clean
+SELECT COUNT(*) FROM trips_clean WHERE ride_length <= 0;
+
+-- 2.7: Delete rows with zero or negative ride_length from trips_clean
+DELETE FROM trips_clean WHERE ride_length <= 0;
+
+-- 2.8: Add day_of_week column to trips_clean (1=Sunday, 7=Saturday)
+ALTER TABLE trips_clean ADD COLUMN day_of_week INTEGER;
+
+-- 2.9: Calculate day of week from start_time using strftime ('%w' returns 0=Sunday)
+UPDATE trips_clean 
+SET day_of_week = CAST(strftime('%w', start_time) AS INTEGER) + 1;
+
+-- 2.10: Check for duplicate trip_id values in trips_clean
+SELECT trip_id, COUNT(*) 
+FROM trips_clean 
+GROUP BY trip_id 
+HAVING COUNT(*) > 1;
+
+-- 2.11: Delete duplicate rows based on trip_id from trips_clean
+DELETE FROM trips_clean 
+WHERE trip_id IN (
+    SELECT trip_id FROM trips_clean 
+    GROUP BY trip_id 
+    HAVING COUNT(*) > 1
+);
+
+-- 2.12: Verify final row count in trips_clean after cleaning
+SELECT COUNT(*) FROM trips_clean;
+
+-- =====================================================
+-- SECTION 3: DESCRIPTIVE ANALYSIS (Using trips_clean)
+-- =====================================================
+
+-- 3.1: Overall statistics (total trips, avg, max, min ride length) from trips_clean
+SELECT 
+    COUNT(*) AS total_trips,
+    AVG(ride_length) AS overall_avg_ride_minutes,
+    MAX(ride_length) AS max_ride_minutes,
+    MIN(ride_length) AS min_ride_minutes
+FROM trips_clean;
+
+-- 3.2: Average ride length by user type (members vs casual) from trips_clean
+SELECT 
+    usertype,
+    AVG(ride_length) AS avg_ride_length_minutes,
+    COUNT(*) AS total_rides
+FROM trips_clean 
+GROUP BY usertype;
+
+-- 3.3: Most common day of week for all rides (mode) from trips_clean
+SELECT 
+    day_of_week,
+    COUNT(*) AS ride_count
+FROM trips_clean 
+GROUP BY day_of_week
+ORDER BY ride_count DESC
+LIMIT 1;
+
+-- =====================================================
+-- SECTION 4: COMPARATIVE ANALYSIS (Using trips_clean)
+-- =====================================================
+
+-- 4.1: Number of rides by user type and day of week from trips_clean
+SELECT 
+    usertype,
+    day_of_week,
+    COUNT(*) AS number_of_rides
+FROM trips_clean 
+GROUP BY usertype, day_of_week
+ORDER BY usertype, day_of_week;
+
+-- 4.2: Average ride length by user type and day of week from trips_clean
+SELECT 
+    usertype,
+    day_of_week,
+    AVG(ride_length) AS avg_ride_length_minutes
+FROM trips_clean 
+GROUP BY usertype, day_of_week
+ORDER BY usertype, day_of_week;
+
+-- 4.3: Most popular day for casual riders (peak day) from trips_clean
+SELECT 
+    day_of_week,
+    COUNT(*) AS ride_count
+FROM trips_clean 
+WHERE usertype = 'Casual'
+GROUP BY day_of_week
+ORDER BY ride_count DESC
+LIMIT 1;
+
+-- 4.4: Most popular day for members (peak day) from trips_clean
+SELECT 
+    day_of_week,
+    COUNT(*) AS ride_count
+FROM trips_clean 
+WHERE usertype = 'Member'
+GROUP BY day_of_week
+ORDER BY ride_count DESC
+LIMIT 1;
+
+-- =====================================================
+-- SECTION 5: BONUS INSIGHTS (Optional - Advanced)
+-- Using trips_clean
+-- =====================================================
+
+-- 5.1: Ride distribution by hour of day (commuting vs leisure patterns) from trips_clean
+SELECT 
+    usertype,
+    strftime('%H', start_time) AS hour_of_day,
+    COUNT(*) AS rides
+FROM trips_clean 
+GROUP BY usertype, hour_of_day
+ORDER BY usertype, hour_of_day;
+
+-- 5.2: Percentage of weekend rides by user type from trips_clean
+SELECT 
+    usertype,
+    ROUND(100.0 * SUM(CASE WHEN day_of_week IN (1,7) THEN 1 ELSE 0 END) / COUNT(*), 2) AS weekend_percentage
+FROM trips_clean 
+GROUP BY usertype;
+
+-- 5.3: Top 10 most popular stations for each user type (using RANK window function) from trips_clean
+SELECT 
+    from_station_name,
+    usertype,
+    COUNT(*) AS rides,
+    RANK() OVER (PARTITION BY usertype ORDER BY COUNT(*) DESC) AS station_rank
+FROM trips_clean 
+GROUP BY from_station_name, usertype
+ORDER BY usertype, station_rank
+LIMIT 10;
+
+-- 5.4: Seasonal comparison from trips_clean (if you have full year data merged)
+-- Note: Requires full year data to run (Q1-Q4 merged)
+SELECT 
+    strftime('%m', start_time) AS month,
+    usertype,
+    AVG(ride_length) AS avg_ride_length,
+    COUNT(*) AS total_rides
+FROM trips_clean 
+GROUP BY month, usertype
+ORDER BY month, usertype;
+
+-- =====================================================
+-- SECTION 6: EXPORT QUERIES (For Visualizations)
+-- Using trips_clean
+-- =====================================================
+
+-- 6.1: Export for Chart 1 - Average Ride Length by User Type
+-- Save result as CSV: user_type_summary.csv
+SELECT 
+    usertype,
+    AVG(ride_length) AS avg_ride_length_minutes,
+    COUNT(*) AS total_rides
+FROM trips_clean 
+GROUP BY usertype;
+
+-- 6.2: Export for Chart 2 - Number of Rides by Day and User Type
+-- Save result as CSV: rides_by_day.csv
+SELECT 
+    usertype,
+    day_of_week,
+    COUNT(*) AS number_of_rides
+FROM trips_clean 
+GROUP BY usertype, day_of_week
+ORDER BY usertype, day_of_week;
+
+-- 6.3: Export for Chart 3 - Average Ride Length by Day and User Type
+-- Save result as CSV: avg_ride_by_day.csv
+SELECT 
+    usertype,
+    day_of_week,
+    AVG(ride_length) AS avg_ride_length_minutes
+FROM trips_clean 
+GROUP BY usertype, day_of_week
+ORDER BY usertype, day_of_week;
+
+-- =====================================================
+-- END OF QUERIES
+-- =====================================================
